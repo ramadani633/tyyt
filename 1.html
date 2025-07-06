@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Enhanced Realtime Potensio Chart</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    
+    .container {
+      background: rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(10px);
+      border-radius: 20px;
+      padding: 30px;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+      width: 100%;
+      max-width: 1200px;
+      min-height: 600px;
+    }
+    
+    .header {
+      text-align: center;
+      margin-bottom: 30px;
+    }
+    
+    .title {
+      font-size: 2.5em;
+      color: #2c3e50;
+      margin-bottom: 10px;
+      text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.1);
+    }
+    
+    .subtitle {
+      font-size: 1.2em;
+      color: #7f8c8d;
+      margin-bottom: 20px;
+    }
+    
+    .stats {
+      display: flex;
+      justify-content: space-around;
+      margin-bottom: 30px;
+      flex-wrap: wrap;
+    }
+    
+    .stat-card {
+      background: linear-gradient(135deg, #3498db, #2980b9);
+      color: white;
+      padding: 20px;
+      border-radius: 15px;
+      text-align: center;
+      min-width: 150px;
+      margin: 10px;
+      box-shadow: 0 10px 20px rgba(52, 152, 219, 0.3);
+      transition: transform 0.3s ease;
+    }
+    
+    .stat-card:hover {
+      transform: translateY(-5px);
+    }
+    
+    .stat-value {
+      font-size: 2em;
+      font-weight: bold;
+      margin-bottom: 5px;
+    }
+    
+    .stat-label {
+      font-size: 0.9em;
+      opacity: 0.9;
+    }
+    
+    .chart-container {
+      position: relative;
+      height: 400px;
+      margin-bottom: 20px;
+    }
+    
+    .status-indicator {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-top: 20px;
+    }
+    
+    .status-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      margin-right: 10px;
+      animation: pulse 2s infinite;
+    }
+    
+    .status-online {
+      background: #27ae60;
+    }
+    
+    .status-offline {
+      background: #e74c3c;
+    }
+    
+    @keyframes pulse {
+      0% { opacity: 1; }
+      50% { opacity: 0.5; }
+      100% { opacity: 1; }
+    }
+    
+    .last-update {
+      text-align: center;
+      color: #7f8c8d;
+      font-size: 0.9em;
+      margin-top: 10px;
+    }
+    
+    @media (max-width: 768px) {
+      .container {
+        padding: 20px;
+        margin: 10px;
+      }
+      
+      .title {
+        font-size: 2em;
+      }
+      
+      .stats {
+        flex-direction: column;
+        align-items: center;
+      }
+      
+      .stat-card {
+        width: 100%;
+        max-width: 300px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1 class="title">📊 Potensio Monitor</h1>
+      <p class="subtitle">Real-time ADC Value Monitoring</p>
+    </div>
+    
+    <div class="stats">
+      <div class="stat-card">
+        <div class="stat-value" id="currentValue">0</div>
+        <div class="stat-label">Current Value</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="maxValue">0</div>
+        <div class="stat-label">Max Value</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="minValue">0</div>
+        <div class="stat-label">Min Value</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="avgValue">0</div>
+        <div class="stat-label">Average</div>
+      </div>
+    </div>
+    
+    <div class="chart-container">
+      <canvas id="myChart"></canvas>
+    </div>
+    
+    <div class="status-indicator">
+      <div class="status-dot status-online" id="statusDot"></div>
+      <span id="statusText">Connected</span>
+    </div>
+    
+    <div class="last-update" id="lastUpdate">
+      Last updated: Never
+    </div>
+  </div>
+
+  <script>
+    // 1. Firebase config (ganti sesuai milikmu)
+    const firebaseConfig = {
+      databaseURL: "coba-8b0d5-default-rtdb.firebaseio.com/"
+    };
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+
+    // 2. Inisialisasi chart dengan styling yang lebih baik
+    const ctx = document.getElementById('myChart').getContext('2d');
+    const chart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: [],
+        datasets: [{
+          label: 'Nilai Potensio',
+          data: [],
+          borderColor: '#3498db',
+          backgroundColor: 'rgba(52, 152, 219, 0.1)',
+          borderWidth: 3,
+          tension: 0.4,
+          fill: true,
+          pointBackgroundColor: '#3498db',
+          pointBorderColor: '#ffffff',
+          pointBorderWidth: 2,
+          pointRadius: 6,
+          pointHoverRadius: 8,
+          pointHoverBackgroundColor: '#2980b9',
+          pointHoverBorderColor: '#ffffff',
+          pointHoverBorderWidth: 3
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: {
+          duration: 1000,
+          easing: 'easeInOutQuart'
+        },
+        plugins: {
+          legend: {
+            display: true,
+            position: 'top',
+            labels: {
+              font: {
+                size: 14,
+                weight: 'bold'
+              },
+              color: '#2c3e50'
+            }
+          },
+          tooltip: {
+            backgroundColor: 'rgba(44, 62, 80, 0.9)',
+            titleColor: '#ffffff',
+            bodyColor: '#ffffff',
+            borderColor: '#3498db',
+            borderWidth: 1,
+            cornerRadius: 10,
+            displayColors: false
+          }
+        },
+        scales: {
+          x: {
+            title: {
+              display: true,
+              text: 'Waktu (detik)',
+              font: {
+                size: 14,
+                weight: 'bold'
+              },
+              color: '#2c3e50'
+            },
+            grid: {
+              color: 'rgba(44, 62, 80, 0.1)',
+              borderDash: [5, 5]
+            },
+            ticks: {
+              color: '#7f8c8d',
+              font: {
+                size: 12
+              }
+            }
+          },
+          y: {
+            beginAtZero: true,
+            title: {
+              display: true,
+              text: 'Nilai ADC',
+              font: {
+                size: 14,
+                weight: 'bold'
+              },
+              color: '#2c3e50'
+            },
+            grid: {
+              color: 'rgba(44, 62, 80, 0.1)',
+              borderDash: [5, 5]
+            },
+            ticks: {
+              color: '#7f8c8d',
+              font: {
+                size: 12
+              }
+            }
+          }
+        },
+        interaction: {
+          intersect: false,
+          mode: 'index'
+        }
+      }
+    });
+
+    // 3. Variables untuk statistik
+    let counter = 0;
+    let allValues = [];
+    let isOnline = true;
+
+    // 4. Function untuk update statistik
+    function updateStats() {
+      if (allValues.length === 0) return;
+      
+      const current = allValues[allValues.length - 1];
+      const max = Math.max(...allValues);
+      const min = Math.min(...allValues);
+      const avg = Math.round(allValues.reduce((a, b) => a + b, 0) / allValues.length);
+      
+      document.getElementById('currentValue').textContent = current;
+      document.getElementById('maxValue').textContent = max;
+      document.getElementById('minValue').textContent = min;
+      document.getElementById('avgValue').textContent = avg;
+    }
+
+    // 5. Function untuk update chart
+    function updateChart(value) {
+      const timestamp = counter * 5; // detik (tiap 5 detik)
+      chart.data.labels.push(timestamp + "s");
+      chart.data.datasets[0].data.push(value);
+      allValues.push(value);
+      counter++;
+
+      // Sliding window 8 titik
+      if (chart.data.labels.length > 8) {
+        chart.data.labels.shift();
+        chart.data.datasets[0].data.shift();
+      }
+      
+      // Keep only last 8 values for stats
+      if (allValues.length > 8) {
+        allValues.shift();
+      }
+
+      chart.update('none'); // Update tanpa animasi untuk performa
+      updateStats();
+      
+      // Update last update time
+      const now = new Date();
+      document.getElementById('lastUpdate').textContent = 
+        `Last updated: ${now.toLocaleTimeString()}`;
+    }
+
+    // 6. Function untuk update status
+    function updateStatus(online) {
+      const statusDot = document.getElementById('statusDot');
+      const statusText = document.getElementById('statusText');
+      
+      if (online) {
+        statusDot.className = 'status-dot status-online';
+        statusText.textContent = 'Connected';
+        statusText.style.color = '#27ae60';
+      } else {
+        statusDot.className = 'status-dot status-offline';
+        statusText.textContent = 'Disconnected';
+        statusText.style.color = '#e74c3c';
+      }
+    }
+
+    // 7. Ambil nilai terbaru setiap 5 detik
+    setInterval(() => {
+      db.ref("Potensio/latest").get().then((snapshot) => {
+        const nilai = snapshot.val();
+        if (nilai !== null) {
+          updateChart(nilai);
+          updateStatus(true);
+          isOnline = true;
+        } else {
+          updateStatus(false);
+          isOnline = false;
+        }
+      }).catch((error) => {
+        console.error("Error getting data:", error);
+        updateStatus(false);
+        isOnline = false;
+      });
+    }, 5000); // 5000 ms = 5 detik
+
+    // 8. Simulasi data untuk demo (hapus jika tidak diperlukan)
+    // Uncomment code di bawah untuk melihat demo dengan data simulasi
+    /*
+    let demoCounter = 0;
+    setInterval(() => {
+      const demoValue = Math.floor(Math.random() * 1000) + 100;
+      updateChart(demoValue);
+      updateStatus(true);
+      demoCounter++;
+    }, 2000);
+    */
+  </script>
+</body>
+</html>
